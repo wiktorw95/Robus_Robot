@@ -8,10 +8,10 @@ Robot wykorzystuje kamerę oraz lekki moduł AI, który analizuje obraz i generu
 
 ## Authors
 
-- [@Amelia Mańkowska](https://www.github.com/octokatherine)
-- [@Wiktor Wilk](https://www.github.com/octokatherine)
-- [@PaweL Madej](https://www.github.com/octokatherine)
-- [@Jakub Grzenia](https://www.github.com/octokatherine)
+- [@Amelia Mańkowska](https://www.github.com/pjatk-S31320)
+- [@Wiktor Wilk](https://github.com/wiktorw95)
+- [@PaweL Madej](https://www.github.com/RussianDancer123)
+- [@Jakub Grzenia](https://github.com/PjwstkJestSuper)
 
 
 ## Documentation
@@ -42,5 +42,5 @@ Plan Rozwoju:
 -Pełna autonomia w różnych środowiskach.
 
 
-![Logo](https://fbi.cults3d.com/uploaders/14391362/illustration-file/cfbafb6a-2142-4ca7-958a-a14f69c98f3e/Kerfus_preview.jpg)
+![Logo](.\docs\logo.png)
 
