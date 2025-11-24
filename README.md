@@ -1,3 +1,4 @@
+<p align="center"> <img src="assets/img/logo.png" alt="Robus Logo"> </p>
 
 # Robus — prototyp robota kelnera
 
@@ -41,12 +42,13 @@ Celem tego projektu jest stworzenie lekkiej, taniej platformy mobilnej, która b
 ## Struktura
 ```plaintext
 robus/
-  ├── docs/
+  ├── assets/
+  │  ├── docs/
+  │  └── img/
   ├── AI/
   ├── IoT/
   ├── models/
   └── README.md
 ```
 
-<p align="center"> <img src="docs/logo.png" alt="Robus Logo"> </p>
-
+<p align="center"> <img src="assets/img/kerfus.gif" alt="Robus Logo"> </p>
