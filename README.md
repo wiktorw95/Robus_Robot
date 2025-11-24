@@ -8,10 +8,10 @@ Robot wykorzystuje kamerę oraz lekki moduł AI, który analizuje obraz i generu
 
 ## Authors
 
-- [@Amelia Mańkowska](https://www.github.com/pjatk-S31320)
-- [@Wiktor Wilk](https://github.com/wiktorw95)
-- [@PaweL Madej](https://www.github.com/RussianDancer123)
-- [@Jakub Grzenia](https://github.com/PjwstkJestSuper)
+- [@Amelia Mańkowska](https://www.github.com/pjatk-S31320) - Admin
+- [@Wiktor Wilk](https://github.com/wiktorw95) - Maintainer
+- [@PaweL Madej](https://www.github.com/RussianDancer123) - Write
+- [@Jakub Grzenia](https://github.com/PjwstkJestSuper) - Triage
 
 
 ## Documentation
@@ -41,6 +41,16 @@ Plan Rozwoju:
 
 -Pełna autonomia w różnych środowiskach.
 
+## Structure
+```plaintext
+robus/
+│
+├── docs/
+├── AI/
+├── IoT/
+├── models/
+└── README.md
+```
 
 ![Logo](docs/logo.png)
 
