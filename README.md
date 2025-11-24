@@ -42,5 +42,5 @@ Plan Rozwoju:
 -Pełna autonomia w różnych środowiskach.
 
 
-![Logo](docs\logo.png)
+![Logo](docs/logo.png)
 
