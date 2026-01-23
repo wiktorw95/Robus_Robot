@@ -29,12 +29,24 @@ void StepperMotor::rotateSteps(long steps, bool direction) {
     for (long s = 0; s < steps; s++) {
         step(direction);
     }
-    _reg.write(0);
+    // _reg.write(0); ------------ do poprawy
 }
 
 void StepperMotor::stepMotor(int idx) {
+     uint8_t mask = 0;
+    for (int i = 0; i < 4; i++) {
+        mask |= (1 << (_offset + i));
+    }
+
     uint8_t val = 0;
-    for (int i = 0; i < 4; i++)
-        if (seq[idx][i]) val |= (1 << (_offset + i));
-    _reg.write(val);
+    for (int i = 0; i < 4; i++) {
+        if (seq[idx][i]) {
+            val |= (1 << (_offset + i));
+        }
+    }
+
+    uint8_t current = _reg.getState();      // ← aktualny stan 595
+    current &= ~mask;                        // wyczyść tylko TEN silnik
+    current |= val;                          // ustaw nowe fazy
+    _reg.write(current);
 }

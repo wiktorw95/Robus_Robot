@@ -3,23 +3,41 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
+#include "esp_camera.h"
+#include "DFRobot_AXP313A.h"
+
+#include <U8g2lib.h>
+#include <Wire.h>
 
 #include "shiftregister.h"
 #include "steppermotor.h"
 
-/* ====== WIFI (AP MODE) ====== */
-const char* ssid = "RobotAP";
+/* ================= OLED ================= */
+#define SDA_OLED D7
+#define SCL_OLED D9
+U8G2_SSD1306_64X48_ER_F_SW_I2C u8g2(
+    U8G2_R0,
+    SCL_OLED,
+    SDA_OLED,
+    U8X8_PIN_NONE
+);
+
+int eyeXOffset = 2;
+int eyeDir = 1;
+int blinkCounter = 0;
+bool eyesOpen = true;
+
+/* ================= WIFI ================= */
+const char* ssid = "Kerfus";
 const char* pass = "12345678";
 
-/* ====== MOTORY ====== */
+/* ================= MOTORY ================= */
 const int LATCH_PIN = D2;
-const long STEPS_PER_REV = 4096;
-
 ShiftRegister595 reg(LATCH_PIN);
 StepperMotor motor1(reg, 0);
 StepperMotor motor2(reg, 4);
 
-/* ====== COMMAND ====== */
+/* ================= COMMAND ================= */
 enum Direction { STOP, FRONT, BACK, LEFT, RIGHT };
 
 struct Command {
@@ -29,11 +47,69 @@ struct Command {
 
 QueueHandle_t commandQueue;
 
-/* ====== WEBSOCKET ====== */
+/* ================= WEBSOCKET ================= */
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
+AsyncWebSocketClient* cameraClient = nullptr;
 
-/* ====== MOTOR CONTROL ====== */
+/* ================= CAMERA ================= */
+DFRobot_AXP313A axp;
+QueueHandle_t camQueue;
+
+/* CAMERA PINS */
+#define PWDN_GPIO_NUM    -1
+#define RESET_GPIO_NUM   -1
+#define XCLK_GPIO_NUM    45
+#define SIOD_GPIO_NUM    1
+#define SIOC_GPIO_NUM    2
+#define Y2_GPIO_NUM      39
+#define Y3_GPIO_NUM      40
+#define Y4_GPIO_NUM      41
+#define Y5_GPIO_NUM      4
+#define Y6_GPIO_NUM      7
+#define Y7_GPIO_NUM      8
+#define Y8_GPIO_NUM      46
+#define Y9_GPIO_NUM      48
+#define VSYNC_GPIO_NUM   6
+#define HREF_GPIO_NUM    42
+#define PCLK_GPIO_NUM    5
+
+/* ================= OLED FUNCTIONS ================= */
+void drawKerfusFace(int eyeOffset, bool eyesOpen) {
+    u8g2.clearBuffer();
+    u8g2.drawFrame(5, 5, 54, 38);
+
+    u8g2.drawPixel(10, 20);
+    u8g2.drawPixel(11, 21);
+    u8g2.drawPixel(48, 20);
+    u8g2.drawPixel(47, 21);
+
+    u8g2.drawHLine(13 + eyeOffset, 13, 8);
+    u8g2.drawHLine(33 + eyeOffset, 13, 8);
+
+    if (eyesOpen) {
+        u8g2.drawBox(14 + eyeOffset, 15, 6, 6);
+        u8g2.drawBox(34 + eyeOffset, 15, 6, 6);
+        u8g2.setDrawColor(0);
+        u8g2.drawPixel(16 + eyeOffset, 17);
+        u8g2.drawPixel(36 + eyeOffset, 17);
+        u8g2.setDrawColor(1);
+    } else {
+        u8g2.drawHLine(14 + eyeOffset, 18, 6);
+        u8g2.drawHLine(34 + eyeOffset, 18, 6);
+    }
+
+    u8g2.drawPixel(30, 30);
+    u8g2.drawPixel(31, 31);
+    u8g2.drawPixel(32, 30);
+
+    u8g2.drawPixel(20, 25);
+    u8g2.drawPixel(43, 25);
+
+    u8g2.sendBuffer();
+}
+
+/* ================= MOTOR CONTROL ================= */
 void stopMotors() {
     reg.write(0);
 }
@@ -61,7 +137,27 @@ void move(Direction dir) {
     }
 }
 
-/* ====== TASK: MOTORS ====== */
+/* ================= TASK: OLED (CORE 0) ================= */
+void taskDisplay(void* pv) {
+    u8g2.begin();
+
+    for (;;) {
+        eyeXOffset += eyeDir;
+        if (eyeXOffset <= 0 || eyeXOffset >= 4)
+            eyeDir = -eyeDir;
+
+        blinkCounter++;
+        if (blinkCounter >= 20) {
+            eyesOpen = !eyesOpen;
+            blinkCounter = 0;
+        }
+
+        drawKerfusFace(eyeXOffset, eyesOpen);
+        vTaskDelay(pdMS_TO_TICKS(150));
+    }
+}
+
+/* ================= TASK: MOTORS (CORE 0) ================= */
 void taskMotors(void* pv) {
     Command cmd;
 
@@ -73,104 +169,187 @@ void taskMotors(void* pv) {
             }
 
             uint32_t endTime = millis() + cmd.duration_s * 1000UL;
-
             while (millis() < endTime) {
                 move(cmd.dir);
-                vTaskDelay(1 / portTICK_PERIOD_MS);
+                vTaskDelay(pdMS_TO_TICKS(2));
             }
-
             stopMotors();
         }
     }
 }
 
-/* ====== TASK: WEBSOCKET ====== */
+/* ================= WEBSOCKET EVENT ================= */
+void onWsEvent(AsyncWebSocket* server,
+               AsyncWebSocketClient* client,
+               AwsEventType type,
+               void* arg,
+               uint8_t* data,
+               size_t len) {
+
+    if (type == WS_EVT_CONNECT) {
+        cameraClient = client;
+        Serial.println("WS client connected");
+        return;
+    }
+
+    if (type == WS_EVT_DISCONNECT) {
+        cameraClient = nullptr;
+        Serial.println("WS client disconnected");
+        return;
+    }
+
+    if (type != WS_EVT_DATA) return;
+
+    AwsFrameInfo* info = (AwsFrameInfo*)arg;
+    if (info->opcode != WS_TEXT) return;
+
+    StaticJsonDocument<200> doc;
+    if (deserializeJson(doc, data, len)) return;
+
+    Command cmd{};
+    String dir = doc["dir"] | "stop";
+    cmd.duration_s = doc["duration"] | 0;
+
+    if (dir == "front") cmd.dir = FRONT;
+    else if (dir == "back") cmd.dir = BACK;
+    else if (dir == "left") cmd.dir = LEFT;
+    else if (dir == "right") cmd.dir = RIGHT;
+    else cmd.dir = STOP;
+
+    xQueueOverwrite(commandQueue, &cmd);
+}
+
+/* ================= TASK: WEBSOCKET (CORE 1) ================= */
 void taskWebSocket(void* pv) {
-    ws.onEvent([](AsyncWebSocket* server,
-                  AsyncWebSocketClient* client,
-                  AwsEventType type,
-                  void* arg,
-                  uint8_t* data,
-                  size_t len) {
-
-        if (type != WS_EVT_DATA) return;
-
-        StaticJsonDocument<200> doc;
-        DeserializationError error = deserializeJson(doc, data, len);
-        if (error) {
-            Serial.println("JSON parse failed");
-            return;
-        }
-
-        Command cmd{};
-        String dir = doc["dir"] | "stop";
-        cmd.duration_s = doc["duration"] | 0;
-
-        if (dir == "front") cmd.dir = FRONT;
-        else if (dir == "back") cmd.dir = BACK;
-        else if (dir == "left") cmd.dir = LEFT;
-        else if (dir == "right") cmd.dir = RIGHT;
-        else cmd.dir = STOP;
-
-        xQueueOverwrite(commandQueue, &cmd);
-
-        // Dodajemy drukowanie do Serial Monitora
-        Serial.print("Received command: ");
-        Serial.print("dir=");
-        Serial.print(dir);
-        Serial.print(", duration=");
-        Serial.println(cmd.duration_s);
-    });
-
+    ws.onEvent(onWsEvent);
     server.addHandler(&ws);
     server.begin();
 
     for (;;) {
         ws.cleanupClients();
-        vTaskDelay(10 / portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
+/* ================= TASK: CAMERA INIT (CORE 0) ================= */
+void taskCameraInit(void* pv) {
+    camera_config_t config{};
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer   = LEDC_TIMER_0;
+    config.pin_d0 = Y2_GPIO_NUM;
+    config.pin_d1 = Y3_GPIO_NUM;
+    config.pin_d2 = Y4_GPIO_NUM;
+    config.pin_d3 = Y5_GPIO_NUM;
+    config.pin_d4 = Y6_GPIO_NUM;
+    config.pin_d5 = Y7_GPIO_NUM;
+    config.pin_d6 = Y8_GPIO_NUM;
+    config.pin_d7 = Y9_GPIO_NUM;
+    config.pin_xclk = XCLK_GPIO_NUM;
+    config.pin_pclk = PCLK_GPIO_NUM;
+    config.pin_vsync = VSYNC_GPIO_NUM;
+    config.pin_href = HREF_GPIO_NUM;
+    config.pin_sccb_sda = SIOD_GPIO_NUM;
+    config.pin_sccb_scl = SIOC_GPIO_NUM;
+    config.pin_pwdn = PWDN_GPIO_NUM;
+    config.pin_reset = RESET_GPIO_NUM;
+    config.xclk_freq_hz = 20000000;
+    config.frame_size = FRAMESIZE_VGA;
+    config.pixel_format = PIXFORMAT_JPEG;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    config.jpeg_quality = 30;
+    config.fb_count = 8;
+    config.grab_mode = CAMERA_GRAB_LATEST;
 
-/* ====== SETUP ====== */
+    if (esp_camera_init(&config) != ESP_OK) {
+        Serial.println("Camera init failed");
+        vTaskDelete(NULL);
+    }
+
+        sensor_t* s = esp_camera_sensor_get();
+    if (s) {
+        s->set_brightness(s, 1);
+        s->set_contrast(s, 1);
+        s->set_saturation(s, -2);
+        s->set_whitebal(s, 1);
+        s->set_gainceiling(s, GAINCEILING_2X);
+        s->set_vflip(s, 1);
+    }
+
+
+
+    Serial.println("Camera initialized");
+    vTaskDelete(NULL);
+
+    
+    while (true) {
+        vTaskDelay(pdMS_TO_TICKS(1000)); // małe opóźnienie, żeby task nie obciążał CPU
+    }
+}
+
+/* ================= TASK: CAMERA CAPTURE (CORE 1) ================= */
+void taskCameraCapture(void* pv) {
+    camera_fb_t* fb;
+
+    for (;;) {
+        fb = esp_camera_fb_get();
+        if (!fb) continue;
+        xQueueOverwrite(camQueue, &fb);
+        vTaskDelay(pdMS_TO_TICKS(50)); // ~20 FPS
+    }
+}
+
+/* ================= TASK: CAMERA TX (CORE 1) ================= */
+void taskCameraTx(void* pv) {
+    camera_fb_t* fb;
+
+    for (;;) {
+        if (!cameraClient || !cameraClient->canSend()) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        if (xQueueReceive(camQueue, &fb, pdMS_TO_TICKS(100))) {
+            cameraClient->binary(fb->buf, fb->len);
+            esp_camera_fb_return(fb);
+        }
+    }
+}
+
+/* ================= SETUP ================= */
 void setup() {
     Serial.begin(115200);
-
+    delay(100);
     reg.begin(17, 15);
 
-    // tryb Access Point
+    while (axp.begin() != 0) {
+        Serial.println("AXP313A init failed");
+        delay(1000);
+    }
+    axp.enableCameraPower(axp.eOV2640);
+
+    WiFi.mode(WIFI_AP);
     WiFi.softAP(ssid, pass);
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print("AP IP address: ");
-    Serial.println(IP);
+    Serial.println(WiFi.softAPIP());
 
     commandQueue = xQueueCreate(1, sizeof(Command));
+    camQueue = xQueueCreate(1, sizeof(camera_fb_t*));
+    
+    delay(1000);
 
-    // Task do sterowania silnikami
-    xTaskCreatePinnedToCore(
-        taskMotors,
-        "Motors",
-        4096,
-        nullptr,
-        2,
-        nullptr,
-        1
-    );
+    xTaskCreatePinnedToCore(taskMotors, "Motors", 8096, NULL, 3, NULL, 0);
+    xTaskCreatePinnedToCore(taskDisplay, "Display", 8096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(taskWebSocket, "WebSocket", 16096, NULL, 2, NULL, 1);
+    delay(1000);
+    xTaskCreatePinnedToCore(taskCameraInit, "CameraInit", 8096, NULL, 4, NULL, 0);
+    delay(1000);
+    xTaskCreatePinnedToCore(taskCameraCapture, "CameraCap", 32096, NULL, 1, NULL, 1);
+    delay(1000);
+    xTaskCreatePinnedToCore(taskCameraTx, "CameraTx", 32096, NULL, 1, NULL, 1);
 
-    // Task do WebSocket
-    xTaskCreatePinnedToCore(
-        taskWebSocket,
-        "WebSocket",
-        4096,
-        nullptr,
-        1,
-        nullptr,
-        1
-    );
+    Serial.println("Robot ready");
+    Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
+Serial.printf("Free PSRAM: %u bytes\n", ESP.getFreePsram());
 
-    Serial.println("Robot AP ready");
 }
 
-void loop() {
-    // puste, wszystko obsługują taski
-}
+void loop() {}
