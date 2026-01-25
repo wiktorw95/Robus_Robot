@@ -7,23 +7,16 @@ import numpy as np
 import threading
 import time
 
-# ================= CONFIG =================
-
 URI = "ws://192.168.4.1/ws"
-DURATION = 0.2                 # short duration, sent repeatedly
-SEND_HZ = 10                   # commands per second
+DURATION = 0.2
+SEND_HZ = 10
 FRAME_SIZE = (320, 240)
-
-# ================= SHARED STATE =================
 
 current_dir = None
 running = True
 
-# ================= KEYBOARD THREAD =================
-
 def keyboard_loop():
     global current_dir, running
-
     while running:
         if keyboard.is_pressed("w"):
             current_dir = "front"
@@ -35,10 +28,7 @@ def keyboard_loop():
             current_dir = "right"
         else:
             current_dir = None
-
         time.sleep(0.01)
-
-# ================= ASYNC TASKS =================
 
 async def send_controls(ws):
     interval = 1.0 / SEND_HZ
@@ -49,14 +39,13 @@ async def send_controls(ws):
                 "dir": current_dir,
                 "duration": DURATION
             }
-
             try:
                 await ws.send(json.dumps(msg))
+                await asyncio.sleep(0)  # critical
             except Exception:
                 break
 
         await asyncio.sleep(interval)
-
 
 async def receive_frames(ws):
     global running
@@ -76,16 +65,16 @@ async def receive_frames(ws):
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(gray, 80, 160)
 
-        edges_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-        combined = np.hstack((frame, edges_bgr))
+        combined = np.hstack((
+            frame,
+            cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        ))
 
         cv2.imshow("Robot | Edges", combined)
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
             running = False
             break
-
-# ================= MAIN =================
 
 async def ws_loop():
     async with websockets.connect(URI, max_size=None) as ws:
@@ -95,12 +84,11 @@ async def ws_loop():
         ).start()
 
         await asyncio.gather(
-            receive_frames(ws),   # never block this
+            receive_frames(ws),
             send_controls(ws)
         )
 
     cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
     try:
