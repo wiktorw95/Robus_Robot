@@ -78,16 +78,40 @@ async def camera_task():
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
 
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    edges = cv2.Canny(gray, 80, 160)
+                    gray = cv2.GaussianBlur(gray, (5, 5), 0)
 
+                    edges = cv2.Canny(gray, 50, 150)
+
+                    # --- focus on bottom region ---
                     h, w = edges.shape
                     zone_h = int(h * EDGE_ZONE_RATIO)
-                    bottom_zone = edges[h - zone_h : h, :]
+                    roi = edges[h - zone_h: h, :]
 
-                    edge_detected = (
-                        cv2.countNonZero(bottom_zone) > EDGE_THRESHOLD
+                    # --- thicken edges ---
+                    kernel = np.ones((5, 5), np.uint8)
+                    roi_thick = cv2.dilate(roi, kernel, iterations=1)
+
+                    # --- detect lines ---
+                    lines = cv2.HoughLinesP(
+                        roi_thick,
+                        rho=1,
+                        theta=np.pi / 180,
+                        threshold=50,
+                        minLineLength=w // 4,
+                        maxLineGap=40
                     )
 
+                    edge_detected = False
+
+                    if lines is not None:
+                        for line in lines:
+                            x1, y1, x2, y2 = line[0]
+                            angle = abs(np.degrees(np.arctan2(y2 - y1, x2 - x1)))
+                            if angle < 20:  # near-horizontal
+                                edge_detected = True
+                                break
+
+                    # --- visual debug ---
                     vis = frame.copy()
                     cv2.rectangle(
                         vis,
@@ -96,6 +120,17 @@ async def camera_task():
                         (0, 0, 255) if edge_detected else (0, 255, 0),
                         2
                     )
+
+                    if lines is not None:
+                        for line in lines:
+                            x1, y1, x2, y2 = line[0]
+                            cv2.line(
+                                vis,
+                                (x1, y1 + h - zone_h),
+                                (x2, y2 + h - zone_h),
+                                (255, 0, 0),
+                                2
+                            )
 
                     combined = np.hstack((
                         vis,
