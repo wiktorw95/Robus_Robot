@@ -48,14 +48,22 @@ async def send_cmd(ws, direction, duration):
 async def camera_task():
     global edge_detected, running
 
+    FRAME_TIMEOUT = 0.5  # seconds without frames = dead camera
+
     while running:
+        last_frame_time = asyncio.get_event_loop().time()
+
         try:
             log("CAMERA connecting...")
             async with websockets.connect(CAM_URI, max_size=None) as ws:
                 log("CAMERA connected")
 
-                async for msg in ws:
-                    if not running:
+                while running:
+                    try:
+                        msg = await asyncio.wait_for(ws.recv(), timeout=FRAME_TIMEOUT)
+                        last_frame_time = asyncio.get_event_loop().time()
+                    except asyncio.TimeoutError:
+                        log("CAMERA frame timeout — reconnecting")
                         break
 
                     if not isinstance(msg, bytes):
@@ -67,8 +75,6 @@ async def camera_task():
                         continue
 
                     frame = cv2.resize(frame, FRAME_SIZE)
-
-                    # fix upside-down camera
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
 
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -78,10 +84,10 @@ async def camera_task():
                     zone_h = int(h * EDGE_ZONE_RATIO)
                     bottom_zone = edges[h - zone_h : h, :]
 
-                    edge_count = cv2.countNonZero(bottom_zone)
-                    edge_detected = edge_count > EDGE_THRESHOLD
+                    edge_detected = (
+                        cv2.countNonZero(bottom_zone) > EDGE_THRESHOLD
+                    )
 
-                    # debug overlay
                     vis = frame.copy()
                     cv2.rectangle(
                         vis,
@@ -103,14 +109,15 @@ async def camera_task():
                         break
 
         except Exception as e:
-            log(f"CAMERA disconnected: {e}")
+            log(f"CAMERA socket error: {e}")
 
         finally:
-            cv2.destroyAllWindows()
             edge_detected = False
+            cv2.destroyAllWindows()
+
             if running:
-                log(f"Reconnecting camera in {RECONNECT_DELAY}s...")
-                await asyncio.sleep(RECONNECT_DELAY)
+                log("CAMERA reconnecting immediately...")
+                await asyncio.sleep(0)  # yield only
 
 # ================= AUTONOMY TASK =================
 
