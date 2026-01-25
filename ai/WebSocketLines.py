@@ -12,25 +12,25 @@ import datetime
 
 ROBOT_IP = "192.168.4.1"
 
-CONTROL_URI = f"ws://{ROBOT_IP}/ws/cmd"
-VIDEO_URI   = f"ws://{ROBOT_IP}/ws/cam"
+CMD_URI = f"ws://{ROBOT_IP}/ws/cmd"
+CAM_URI = f"ws://{ROBOT_IP}/ws/cam"
 
-SEND_HZ = 5              # safer for embedded controllers
-DURATION = 0.2
 FRAME_SIZE = (320, 240)
 
-# ================= GLOBAL STATE =================
+COMMAND_DURATION = 1     # SECONDS (IMPORTANT)
+SEND_INTERVAL = 0.3      # seconds
 
-current_dir = None
 running = True
+current_dir = None
+last_sent_dir = None
 
-# ================= LOGGING =================
+# ================= LOG =================
 
 def log(msg):
     ts = datetime.datetime.now().strftime("%H:%M:%S")
     print(f"[{ts}] {msg}")
 
-# ================= KEYBOARD THREAD =================
+# ================= KEYBOARD =================
 
 def keyboard_loop():
     global current_dir
@@ -50,56 +50,53 @@ def keyboard_loop():
 
         time.sleep(0.01)
 
-    log("Keyboard thread stopped")
-
-# ================= CONTROL SOCKET =================
+# ================= CONTROL =================
 
 async def control_loop():
-    interval = 1.0 / SEND_HZ
+    global last_sent_dir
 
     try:
-        async with websockets.connect(CONTROL_URI) as ws:
+        async with websockets.connect(CMD_URI) as ws:
             log("CONTROL connected")
 
             while running:
-                if current_dir:
-                    msg = {
-                        "dir": current_dir,
-                        "duration": DURATION
-                    }
+                if current_dir != last_sent_dir:
+                    if current_dir is None:
+                        msg = {"dir": "stop", "duration": 0}
+                    else:
+                        msg = {
+                            "dir": current_dir,
+                            "duration": COMMAND_DURATION
+                        }
+
                     await ws.send(json.dumps(msg))
-                await asyncio.sleep(interval)
+                    last_sent_dir = current_dir
+
+                await asyncio.sleep(SEND_INTERVAL)
 
     except Exception as e:
-        log(f"CONTROL error / disconnected: {e}")
+        log(f"CONTROL error: {e}")
 
     finally:
-        log("CONTROL socket closed")
+        log("CONTROL disconnected")
 
-# ================= VIDEO SOCKET =================
+# ================= CAMERA =================
 
-async def video_loop():
+async def camera_loop():
     global running
-    latest_frame = None
 
     try:
-        async with websockets.connect(VIDEO_URI, max_size=None) as ws:
-            log("VIDEO connected")
+        async with websockets.connect(CAM_URI, max_size=None) as ws:
+            log("CAMERA connected")
 
             async for msg in ws:
                 if not running:
                     break
 
-                if isinstance(msg, bytes):
-                    # Keep ONLY the newest frame (drop old ones)
-                    latest_frame = msg
-
-                if latest_frame is None:
+                if not isinstance(msg, bytes):
                     continue
 
-                img = np.frombuffer(latest_frame, dtype=np.uint8)
-                latest_frame = None
-
+                img = np.frombuffer(msg, dtype=np.uint8)
                 frame = cv2.imdecode(img, cv2.IMREAD_COLOR)
                 if frame is None:
                     continue
@@ -117,15 +114,14 @@ async def video_loop():
                 cv2.imshow("Robot | Camera + Lines", combined)
 
                 if cv2.waitKey(1) & 0xFF == ord("q"):
-                    log("Quit requested by user")
                     running = False
                     break
 
     except Exception as e:
-        log(f"VIDEO error / disconnected: {e}")
+        log(f"CAMERA error: {e}")
 
     finally:
-        log("VIDEO socket closed")
+        log("CAMERA disconnected")
         cv2.destroyAllWindows()
 
 # ================= MAIN =================
@@ -140,7 +136,7 @@ async def main():
 
     await asyncio.gather(
         control_loop(),
-        video_loop()
+        camera_loop()
     )
 
     log("Client stopped")
@@ -152,4 +148,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         running = False
-        log("KeyboardInterrupt – exiting")
+        log("Interrupted")
