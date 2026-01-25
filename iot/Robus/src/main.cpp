@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include "esp_camera.h"
 #include "DFRobot_AXP313A.h"
+#include "esp_task_wdt.h"
 
 #include <U8g2lib.h>
 #include <Wire.h>
@@ -139,6 +140,8 @@ void move(Direction dir) {
 
 /* ================= TASK: OLED (CORE 0) ================= */
 void taskDisplay(void* pv) {
+    esp_task_wdt_add(NULL);
+
     u8g2.begin();
 
     for (;;) {
@@ -159,6 +162,8 @@ void taskDisplay(void* pv) {
 
 /* ================= TASK: MOTORS (CORE 0) ================= */
 void taskMotors(void* pv) {
+    esp_task_wdt_add(NULL);
+
     Command cmd;
 
     for (;;) {
@@ -221,6 +226,8 @@ void onWsEvent(AsyncWebSocket* server,
 
 /* ================= TASK: WEBSOCKET (CORE 1) ================= */
 void taskWebSocket(void* pv) {
+    esp_task_wdt_add(NULL);
+
     ws.onEvent(onWsEvent);
     server.addHandler(&ws);
     server.begin();
@@ -233,6 +240,8 @@ void taskWebSocket(void* pv) {
 
 /* ================= TASK: CAMERA INIT (CORE 0) ================= */
 void taskCameraInit(void* pv) {
+    esp_task_wdt_add(NULL);
+
     camera_config_t config{};
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer   = LEDC_TIMER_0;
@@ -288,6 +297,8 @@ void taskCameraInit(void* pv) {
 
 /* ================= TASK: CAMERA CAPTURE (CORE 1) ================= */
 void taskCameraCapture(void* pv) {
+    esp_task_wdt_add(NULL);
+
     camera_fb_t* fb;
 
     for (;;) {
@@ -300,6 +311,8 @@ void taskCameraCapture(void* pv) {
 
 /* ================= TASK: CAMERA TX (CORE 1) ================= */
 void taskCameraTx(void* pv) {
+    esp_task_wdt_add(NULL);
+    
     camera_fb_t* fb;
 
     for (;;) {
@@ -348,8 +361,10 @@ void setup() {
 
     Serial.println("Robot ready");
     Serial.printf("Free heap: %u bytes\n", ESP.getFreeHeap());
-Serial.printf("Free PSRAM: %u bytes\n", ESP.getFreePsram());
+    Serial.printf("Free PSRAM: %u bytes\n", ESP.getFreePsram());
 
+    // === TASK WATCHDOG INIT ===
+    esp_task_wdt_init(5, true); // timeout 5s, auto-reset ESP przy zacięciu
 }
 
 void loop() {}
