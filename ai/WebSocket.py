@@ -7,7 +7,7 @@ import numpy as np
 
 URI = "ws://192.168.1.50/ws"
 DURATION = 1
-
+SEND_RATE = 0.1  # seconds
 
 async def ws_loop():
     async with websockets.connect(URI, max_size=None) as ws:
@@ -23,18 +23,25 @@ async def ws_loop():
                     await ws.send(json.dumps({"dir": "left", "duration": DURATION}))
                 elif keyboard.is_pressed("d"):
                     await ws.send(json.dumps({"dir": "right", "duration": DURATION}))
-                await asyncio.sleep(0.1)
+
+                await asyncio.sleep(SEND_RATE)
 
         async def receive_frames():
             async for msg in ws:
-                if isinstance(msg, bytes):
-                    img = np.frombuffer(msg, dtype=np.uint8)
-                    frame = cv2.imdecode(img, cv2.IMREAD_COLOR)
-                    if frame is not None:
-                        cv2.imshow("ESP32 Camera", frame)
-                        cv2.waitKey(1)
+                if not isinstance(msg, bytes):
+                    continue
+
+                img = np.frombuffer(msg, dtype=np.uint8)
+                frame = cv2.imdecode(img, cv2.IMREAD_COLOR)
+                if frame is None:
+                    continue
+
+                cv2.imshow("ESP32 Camera", frame)
+                if cv2.waitKey(1) & 0xFF == ord("q"):
+                    break
 
         await asyncio.gather(send_controls(), receive_frames())
 
+    cv2.destroyAllWindows()
 
 asyncio.run(ws_loop())
