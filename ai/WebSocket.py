@@ -6,7 +6,7 @@ import threading
 import time
 
 ROBOT_IP = "192.168.4.1"
-CONTROL_URI = f"ws://192.168.4.1/cmd"
+CONTROL_URI = f"ws://192.168.4.1/ws/cmd"
 
 SEND_HZ = 10
 DURATION = 0.2

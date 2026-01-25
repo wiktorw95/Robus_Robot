@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 ROBOT_IP = "192.168.4.1"
-VIDEO_URI = f"ws://192.168.4.1/cam"
+VIDEO_URI = f"ws://192.168.4.1/ws/cam"
 
 FRAME_SIZE = (320, 240)
 
