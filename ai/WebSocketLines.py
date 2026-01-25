@@ -10,57 +10,52 @@ import time
 # ================= CONFIG =================
 
 URI = "ws://192.168.4.1/ws"
-DURATION = 1
+DURATION = 0.2                 # short duration, sent repeatedly
+SEND_HZ = 10                   # commands per second
 FRAME_SIZE = (320, 240)
 
-# ================= GLOBAL STATE =================
+# ================= SHARED STATE =================
 
+current_dir = None
 running = True
-control_queue = asyncio.Queue(maxsize=1)
 
 # ================= KEYBOARD THREAD =================
 
-def keyboard_loop(loop):
-    global running
-    last_dir = None
+def keyboard_loop():
+    global current_dir, running
 
     while running:
         if keyboard.is_pressed("w"):
-            cur = "front"
+            current_dir = "front"
         elif keyboard.is_pressed("s"):
-            cur = "back"
+            current_dir = "back"
         elif keyboard.is_pressed("a"):
-            cur = "left"
+            current_dir = "left"
         elif keyboard.is_pressed("d"):
-            cur = "right"
+            current_dir = "right"
         else:
-            cur = None
+            current_dir = None
 
-        if cur != last_dir:
-            def push():
-                if not control_queue.full():
-                    control_queue.put_nowait(cur)
-
-            loop.call_soon_threadsafe(push)
-            last_dir = cur
-
-        time.sleep(0.03)
+        time.sleep(0.01)
 
 # ================= ASYNC TASKS =================
 
 async def send_controls(ws):
+    interval = 1.0 / SEND_HZ
+
     while running:
-        direction = await control_queue.get()
+        if current_dir is not None:
+            msg = {
+                "dir": current_dir,
+                "duration": DURATION
+            }
 
-        if direction is None:
-            continue
+            try:
+                await ws.send(json.dumps(msg))
+            except Exception:
+                break
 
-        msg = {
-            "dir": direction,
-            "duration": DURATION
-        }
-
-        await ws.send(json.dumps(msg))
+        await asyncio.sleep(interval)
 
 
 async def receive_frames(ws):
@@ -94,16 +89,13 @@ async def receive_frames(ws):
 
 async def ws_loop():
     async with websockets.connect(URI, max_size=None) as ws:
-        loop = asyncio.get_running_loop()
-
         threading.Thread(
             target=keyboard_loop,
-            args=(loop,),
             daemon=True
         ).start()
 
         await asyncio.gather(
-            receive_frames(ws),   # receiver must stay responsive
+            receive_frames(ws),   # never block this
             send_controls(ws)
         )
 
