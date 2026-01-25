@@ -7,45 +7,57 @@ import numpy as np
 import threading
 import time
 
+# ================= CONFIG =================
+
 URI = "ws://192.168.4.1/ws"
-DURATION = 0.2
-SEND_HZ = 10
+DURATION = 1
 FRAME_SIZE = (320, 240)
+SEND_RATE = 0.05  # seconds between control messages (~20 Hz)
 
-current_dir = None
+# ================= GLOBAL STATE =================
+
 running = True
+control_queue = asyncio.Queue(maxsize=1)
 
-def keyboard_loop():
-    global current_dir, running
+# ================= KEYBOARD THREAD =================
+
+def keyboard_loop(loop):
+    global running
+
     while running:
         if keyboard.is_pressed("w"):
-            current_dir = "front"
+            cur = "front"
         elif keyboard.is_pressed("s"):
-            current_dir = "back"
+            cur = "back"
         elif keyboard.is_pressed("a"):
-            current_dir = "left"
+            cur = "left"
         elif keyboard.is_pressed("d"):
-            current_dir = "right"
+            cur = "right"
         else:
-            current_dir = None
-        time.sleep(0.01)
+            cur = "stop"
+
+        def push():
+            if not control_queue.full():
+                control_queue.put_nowait(cur)
+
+        # continuously push current direction
+        loop.call_soon_threadsafe(push)
+
+        time.sleep(SEND_RATE)
+
+# ================= ASYNC TASKS =================
 
 async def send_controls(ws):
-    interval = 1.0 / SEND_HZ
-
     while running:
-        if current_dir is not None:
-            msg = {
-                "dir": current_dir,
-                "duration": DURATION
-            }
-            try:
-                await ws.send(json.dumps(msg))
-                await asyncio.sleep(0)  # critical
-            except Exception:
-                break
+        direction = await control_queue.get()
 
-        await asyncio.sleep(interval)
+        msg = {
+            "dir": direction,
+            "duration": DURATION
+        }
+
+        await ws.send(json.dumps(msg))
+
 
 async def receive_frames(ws):
     global running
@@ -65,10 +77,8 @@ async def receive_frames(ws):
         gray = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(gray, 80, 160)
 
-        combined = np.hstack((
-            frame,
-            cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
-        ))
+        edges_bgr = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        combined = np.hstack((frame, edges_bgr))
 
         cv2.imshow("Robot | Edges", combined)
 
@@ -76,10 +86,15 @@ async def receive_frames(ws):
             running = False
             break
 
+# ================= MAIN =================
+
 async def ws_loop():
     async with websockets.connect(URI, max_size=None) as ws:
+        loop = asyncio.get_running_loop()
+
         threading.Thread(
             target=keyboard_loop,
+            args=(loop,),
             daemon=True
         ).start()
 
@@ -89,6 +104,7 @@ async def ws_loop():
         )
 
     cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     try:
