@@ -10,8 +10,9 @@ import time
 # ================= CONFIG =================
 
 ROBOT_IP = "192.168.4.1"
-CONTROL_URI = f"ws://{ROBOT_IP}/control"
-VIDEO_URI   = f"ws://{ROBOT_IP}/video"
+
+CONTROL_URI = f"ws://{ROBOT_IP}/ws/cmd"
+VIDEO_URI   = f"ws://{ROBOT_IP}/ws/cam"
 
 SEND_HZ = 10
 DURATION = 0.2
@@ -68,8 +69,13 @@ async def video_loop():
             if frame is None:
                 continue
 
+            # Resize
             frame = cv2.resize(frame, FRAME_SIZE)
 
+            # 🔁 FIX: rotate camera 180° (upside-down fix)
+            frame = cv2.rotate(frame, cv2.ROTATE_180)
+
+            # Edge detection
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             edges = cv2.Canny(gray, 80, 160)
 
