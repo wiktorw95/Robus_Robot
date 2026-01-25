@@ -106,7 +106,7 @@ async def autonomy_loop():
 
         while running:
             # ---- DRIVE FORWARD ----
-            drive_time = random.randint(1, 3)
+            drive_time = random.randint(10, 30)
             start = asyncio.get_event_loop().time()
 
             log(f"Driving forward ({drive_time}s)")
@@ -122,7 +122,7 @@ async def autonomy_loop():
                     await asyncio.sleep(0.1)
 
                     turn = random.choice(["left", "right"])
-                    await send_cmd(ws, turn, 1)   # ~90°
+                    await send_cmd(ws, turn, 5)   # ~90°
                     break
 
                 await asyncio.sleep(0.05)
@@ -130,8 +130,7 @@ async def autonomy_loop():
             # ---- NORMAL TURN ----
             if not edge_detected:
                 turn = random.choice(["left", "right"])
-                turn_time = random.uniform(0.5, 1.0)  # ~30–90°
-                await send_cmd(ws, turn, round(turn_time))
+                await send_cmd(ws, turn, 5)
 
             edge_detected = False
 
