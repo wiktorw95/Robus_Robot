@@ -29,7 +29,6 @@ void StepperMotor::rotateSteps(long steps, bool direction) {
     for (long s = 0; s < steps; s++) {
         step(direction);
     }
-    // _reg.write(0); ------------ do poprawy
 }
 
 void StepperMotor::stepMotor(int idx) {
@@ -45,8 +44,8 @@ void StepperMotor::stepMotor(int idx) {
         }
     }
 
-    uint8_t current = _reg.getState();      // ← aktualny stan 595
-    current &= ~mask;                        // wyczyść tylko TEN silnik
-    current |= val;                          // ustaw nowe fazy
+    uint8_t current = _reg.getState();\
+    current &= ~mask;
+    current |= val;
     _reg.write(current);
 }
