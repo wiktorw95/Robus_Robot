@@ -13,16 +13,16 @@ ROBOT_IP = "192.168.4.1"
 CMD_URI = f"ws://{ROBOT_IP}/ws/cmd"
 CAM_URI = f"ws://{ROBOT_IP}/ws/cam"
 
-FRAME_SIZE = (320, 240)
+FRAME_SIZE = (640, 480)
 
-EDGE_ZONE_RATIO = 0.20     # bottom 20%
+EDGE_ZONE_RATIO = 0.20
 EDGE_THRESHOLD = 2500
 
 FORWARD_MIN = 10
 FORWARD_MAX = 30
-TURN_TIME = 5              # seconds
+TURN_TIME = 5
 
-RECONNECT_DELAY = 2        # seconds
+RECONNECT_DELAY = 2
 
 running = True
 edge_detected = False
@@ -48,7 +48,7 @@ async def send_cmd(ws, direction, duration):
 async def camera_task():
     global edge_detected, running
 
-    FRAME_TIMEOUT = 0.5  # seconds without frames = dead camera
+    FRAME_TIMEOUT = 0.5
 
     while running:
         last_frame_time = asyncio.get_event_loop().time()
